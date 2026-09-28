@@ -95,75 +95,75 @@ from vllm.multimodal import (MULTIMODAL_REGISTRY, MultiModalDataDict,
 from vllm.sequence import IntermediateTensors, SequenceData
 from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.logger import init_logger
-from vllm.bi100_env import env_bool, env_int
+from vllm.bi100_env import env_bool, env_int, switch_wants, switch_live, switch_probe, switch_missing, switch_report
 from vllm.bi100_profile import (bi100_profile_event_enabled,
                                 bi100_profile_flush,
                                 bi100_profile_transaction, bi100_timer)
 
-try:
+_corex_gdn_causal_conv = None
+if switch_wants("corex_gdn_causal_conv", "BI100_GDN_COREX_CAUSAL_CONV", True):
     from vllm import corex_gdn_causal_conv as _corex_gdn_causal_conv
-except ImportError:
-    _corex_gdn_causal_conv = None
+    switch_live("corex_gdn_causal_conv", _corex_gdn_causal_conv)
 
-try:
+_corex_gdn_gated_norm = None
+if switch_wants("corex_gdn_gated_norm", "BI100_GDN_COREX_GATED_NORM", True):
     from vllm import corex_gdn_gated_norm as _corex_gdn_gated_norm
-except ImportError:
-    _corex_gdn_gated_norm = None
+    switch_live("corex_gdn_gated_norm", _corex_gdn_gated_norm)
 
-try:
+_corex_gdn_beta_decay = None
+if switch_wants("corex_gdn_beta_decay", "BI100_GDN_COREX_BETA_DECAY", True):
     from vllm import corex_gdn_beta_decay as _corex_gdn_beta_decay
-except ImportError:
-    _corex_gdn_beta_decay = None
+    switch_live("corex_gdn_beta_decay", _corex_gdn_beta_decay)
 
-try:
+_corex_gdn_qk_map = None
+if switch_wants("corex_gdn_qk_map", "BI100_GDN_COREX_QK_MAP", True):
     from vllm import corex_gdn_qk_map as _corex_gdn_qk_map
-except ImportError:
-    _corex_gdn_qk_map = None
+    switch_live("corex_gdn_qk_map", _corex_gdn_qk_map)
 
-try:
+_corex_gdn_packed_decode = None
+if switch_wants("corex_gdn_packed_decode", "BI100_GDN_COREX_PACKED_DECODE", False):
     from vllm import corex_gdn_packed_decode as _corex_gdn_packed_decode
-except ImportError:
-    _corex_gdn_packed_decode = None
+    switch_live("corex_gdn_packed_decode", _corex_gdn_packed_decode)
 
-try:
+_corex_attn_head_rms_norm = None
+if switch_wants("corex_attn_head_rms_norm", "BI100_ATTN_COREX_HEAD_RMS_NORM", True):
     from vllm import corex_attn_head_rms_norm as _corex_attn_head_rms_norm
-except ImportError:
-    _corex_attn_head_rms_norm = None
+    switch_live("corex_attn_head_rms_norm", _corex_attn_head_rms_norm)
 
-try:
+_corex_moe_exact_reduce = None
+if switch_wants("corex_moe_exact_reduce", "BI100_MOE_COREX_EXACT_REDUCE", True):
     from vllm import corex_moe_exact_reduce as _corex_moe_exact_reduce
-except ImportError:
-    _corex_moe_exact_reduce = None
+    switch_live("corex_moe_exact_reduce", _corex_moe_exact_reduce)
 
-try:
+_corex_moe_weight_gather = None
+if switch_wants("corex_moe_weight_gather", "BI100_MOE_COREX_WEIGHT_GATHER", True):
     from vllm import corex_moe_weight_gather as _corex_moe_weight_gather
-except ImportError:
-    _corex_moe_weight_gather = None
+    switch_live("corex_moe_weight_gather", _corex_moe_weight_gather)
 
-try:
+_corex_moe_direct_routed = None
+if switch_wants("corex_moe_direct_routed", "BI100_MOE_COREX_DIRECT_ROUTED", False):
     from vllm import corex_moe_direct_routed as _corex_moe_direct_routed
-except ImportError:
-    _corex_moe_direct_routed = None
+    switch_live("corex_moe_direct_routed", _corex_moe_direct_routed)
 
-try:
+_corex_batched_gemm = None
+if switch_wants("corex_batched_gemm", "BI100_MOE_BATCHED_GEMM", True):
     from vllm import corex_batched_gemm as _corex_batched_gemm
-except ImportError:
-    _corex_batched_gemm = None
+    switch_live("corex_batched_gemm", _corex_batched_gemm)
 
-try:
+_gemm_grouped = None
+if switch_wants("gemm_grouped", "BI100_MOE_GEMM_GROUPED", True):
     from vllm import gemm_grouped as _gemm_grouped
-except ImportError:
-    _gemm_grouped = None
+    switch_live("gemm_grouped", _gemm_grouped)
 
-try:
+_corex_moe_topk_softmax = None
+if switch_wants("corex_moe_topk_softmax", "BI100_MOE_COREX_TOPK_SOFTMAX", True):
     from vllm import corex_moe_topk_softmax as _corex_moe_topk_softmax
-except ImportError:
-    _corex_moe_topk_softmax = None
+    switch_live("corex_moe_topk_softmax", _corex_moe_topk_softmax)
 
-try:
+_corex_moe_index_combine = None
+if switch_wants("corex_moe_index_combine", "BI100_MOE_COREX_INDEX_COMBINE", True):
     from vllm import corex_moe_index_combine as _corex_moe_index_combine
-except ImportError:
-    _corex_moe_index_combine = None
+    switch_live("corex_moe_index_combine", _corex_moe_index_combine)
 
 try:
     from vllm import xllm_moe as _xllm_moe
