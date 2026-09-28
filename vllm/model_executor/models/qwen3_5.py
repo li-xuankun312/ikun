@@ -95,7 +95,7 @@ from vllm.multimodal import (MULTIMODAL_REGISTRY, MultiModalDataDict,
 from vllm.sequence import IntermediateTensors, SequenceData
 from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.logger import init_logger
-from vllm.bi100_env import env_bool, env_int, switch_wants, switch_live, switch_probe, switch_missing, switch_report
+from vllm.bi100_env import env_bool, env_int, switch_wants, switch_live, switch_probe, switch_missing, switch_report, switch_state
 from vllm.bi100_profile import (bi100_profile_event_enabled,
                                 bi100_profile_flush,
                                 bi100_profile_transaction, bi100_timer)

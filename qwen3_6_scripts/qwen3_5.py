@@ -95,7 +95,7 @@ from vllm.multimodal import (MULTIMODAL_REGISTRY, MultiModalDataDict,
 from vllm.sequence import IntermediateTensors, SequenceData
 from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.logger import init_logger
-from vllm.bi100_env import env_bool, env_int, switch_wants, switch_live, switch_probe, switch_missing, switch_report
+from vllm.bi100_env import env_bool, env_int, switch_wants, switch_live, switch_probe, switch_missing, switch_report, switch_state
 from vllm.bi100_profile import (bi100_profile_event_enabled,
                                 bi100_profile_flush,
                                 bi100_profile_transaction, bi100_timer)
@@ -539,6 +539,47 @@ except ImportError:
 _USE_NAIVE_BATCHED_MOE = (
     _HAS_NAIVE_BATCHED_MOE
     and env_bool("BI100_MOE_NAIVE_BATCHED", True))
+
+# --- Startup kernel availability summary ---
+# Ported from vendor_overrides/vllm/.../qwen3_5.py, which patch_ops.sh used to
+# clobber this file with. Extended from ON/OFF to a third state: a flag set to 1
+# whose .so never loaded is DEAD, not OFF.
+_SUMMARY_ROWS = (
+    ("GDN causal_conv", "corex_gdn_causal_conv", _USE_COREX_GDN_CAUSAL_CONV),
+    ("GDN gated_norm", "corex_gdn_gated_norm", _USE_COREX_GDN_GATED_NORM),
+    ("GDN beta_decay", "corex_gdn_beta_decay", _USE_COREX_GDN_BETA_DECAY),
+    ("GDN qk_map", "corex_gdn_qk_map", _USE_COREX_GDN_QK_MAP),
+    ("GDN packed_decode", "corex_gdn_packed_decode", _USE_COREX_GDN_PACKED_DECODE),
+    ("GDN chunk_recur", "corex_gdn_chunk_recurrent", _HAS_COREX_GDN_CHUNK),
+    ("ATTN head_rms_norm", "corex_attn_head_rms_norm", _USE_COREX_ATTN_HEAD_RMS_NORM),
+    ("MOE direct_routed", "corex_moe_direct_routed", _USE_COREX_MOE_DIRECT_ROUTED),
+    ("MOE exact_reduce", "corex_moe_exact_reduce", _USE_COREX_MOE_EXACT_REDUCE),
+    ("MOE weight_gather", "corex_moe_weight_gather", _USE_COREX_MOE_WEIGHT_GATHER),
+    ("MOE topk_softmax", "corex_moe_topk_softmax", _USE_COREX_MOE_TOPK_SOFTMAX),
+    ("MOE index_combine", "corex_moe_index_combine", _USE_COREX_MOE_INDEX_COMBINE),
+    ("MOE batched_gemm", "corex_batched_gemm", _USE_COREX_BATCHED_GEMM),
+    ("MOE gemm_grouped", "gemm_grouped", _USE_GEMM_GROUPED),
+    ("MOE xllm_moe", "xllm_moe", _USE_XLLM_MOE),
+    ("MOE ix_fused", "ix_fused_moe", _USE_IX_FUSED_MOE),
+    ("MOE naive_batched", "naive_batched_moe", _USE_NAIVE_BATCHED_MOE),
+    ("bridge_linear", "ix_moe_bridge.linear", _HAS_BRIDGE_LINEAR),
+)
+print("========BI100 KERNEL SUMMARY============", flush=True)
+_dead = []
+for _label, _mod, _on in _SUMMARY_ROWS:
+    _state = switch_state(_mod)
+    if _state == "DEAD":
+        _dead.append(_label)
+        print("@@@@@@@@{:<20} DEAD  {}@@@@@@@@".format(_label, _mod), flush=True)
+    else:
+        print("========{:<20} {}============".format(
+            _label, "ON" if _on else "OFF"), flush=True)
+if _dead:
+    print("@@@@@@@@BI100 KERNEL SUMMARY: {} switch(es) set to 1 but not "
+          "loaded: {}@@@@@@@@".format(len(_dead), ", ".join(_dead)), flush=True)
+else:
+    print("========BI100 KERNEL SUMMARY: no dead switches============",
+          flush=True)
 
 
 # ---------------------------------------------------------------------------

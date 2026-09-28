@@ -95,3 +95,7 @@ def switch_report():
         print("@@@@@@@@{}switch_report DEAD {} {}@@@@@@@@".format(tag, k, why),
               flush=True)
     return dict(_SWITCH_STATE)
+
+def switch_state(label):
+    """Return LIVE / OFF / DEAD for a label seen by switch_wants."""
+    return _SWITCH_STATE.get(label, ("DEAD", "never resolved"))[0]
