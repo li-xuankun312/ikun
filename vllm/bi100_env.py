@@ -97,5 +97,10 @@ def switch_report():
     return dict(_SWITCH_STATE)
 
 def switch_state(label):
-    """Return LIVE / OFF / DEAD for a label seen by switch_wants."""
-    return _SWITCH_STATE.get(label, ("DEAD", "never resolved"))[0]
+    """LIVE / OFF / DEAD for a label that went through switch_wants.
+
+    UNKNOWN for anything else. Modules loaded by their own path never reach
+    switch_wants, and calling those DEAD would be a lie -- the caller should
+    fall back to its own boolean for those.
+    """
+    return _SWITCH_STATE.get(label, ("UNKNOWN", "not routed through switch_wants"))[0]
