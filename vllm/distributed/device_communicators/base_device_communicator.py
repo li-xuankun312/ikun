@@ -93,9 +93,10 @@ class DeviceCommunicatorBase:
                 ret = bridge._lib.infinicclGetUniqueId(ctypes.byref(uid))
                 assert ret == 0, f"infinicclGetUniqueId failed: {ret}"
 
-            uid_tensor = torch.tensor(list(bytes(uid)), dtype=torch.uint8).cuda()
+            with torch.inference_mode(False):
+                uid_tensor = torch.tensor(list(bytes(uid)), dtype=torch.uint8)
             dist.broadcast(uid_tensor, src=self.ranks[0], group=self.cpu_group)
-            ctypes.memmove(ctypes.byref(uid), bytes(uid_tensor.cpu().tolist()), 128)
+            ctypes.memmove(ctypes.byref(uid), bytes(uid_tensor.tolist()), 128)
 
             comm_ptr = ctypes.c_void_p()
             ret = bridge._lib.infinicclCommInitRank(
