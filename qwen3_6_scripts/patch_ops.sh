@@ -579,7 +579,15 @@ fi
 build_stage "patch script completed"
 build_stage "installing ix_fused_moe 7-step pipeline and ex_engine"
 cp ./ix_fused_moe.py "${VLLM_ROOT}/model_executor/models/ix_fused_moe.py"
-if [[ -d "./ex_engine" ]]; then
-    cp -rf ./ex_engine "${VLLM_ROOT}/../ex_engine"
-    cp -rf ./ex_engine /workspace/ex_engine 2>/dev/null || true
+REPO_ROOT="$(cd .. && pwd)"
+if [[ -d "${REPO_ROOT}/ex_engine" ]]; then
+    cp -rf "${REPO_ROOT}/ex_engine" "${VLLM_ROOT}/../ex_engine"
+    cp -rf "${REPO_ROOT}/ex_engine" /workspace/ex_engine 2>/dev/null || true
+    echo "[ok] deployed ex_engine from ${REPO_ROOT}/ex_engine"
+fi
+if [[ -f "${REPO_ROOT}/ex_engine/prebuilt/libinfiniccl.so" ]]; then
+    cp "${REPO_ROOT}/ex_engine/prebuilt/libinfiniccl.so" /usr/local/corex/lib64/ 2>/dev/null || true
+    echo "[ok] deployed libinfiniccl.so to /usr/local/corex/lib64/"
+elif [[ -f "/usr/local/corex/lib64/libinfiniccl.so" ]]; then
+    echo "[ok] libinfiniccl.so already in /usr/local/corex/lib64/"
 fi
