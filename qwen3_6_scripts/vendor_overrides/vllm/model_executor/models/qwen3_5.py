@@ -567,10 +567,11 @@ print(
 # See qwen3_6_scripts/qwen3_5.py for full rationale.
 # ---------------------------------------------------------------------------
 _fused_ar_bridge = None
+_infiniccl_ar = None
 _FUSED_AR = env_bool("BI100_FUSED_LINEAR_ALLREDUCE", False)
 if _FUSED_AR:
     try:
-        from ex_engine.python.patch_fused_linear_allreduce import _load_bridge
+        from ex_engine.python.patch_fused_linear_allreduce import _load_bridge, _bridge_fused_ar
         if _load_bridge():
             from ex_engine.python.patch_fused_linear_allreduce import _bridge_fused_ar
             _fused_ar_bridge = _bridge_fused_ar
@@ -582,12 +583,28 @@ if _FUSED_AR:
     except Exception as _e:
         print(f"[xllm-vo] fused_ar bridge FAILED: {_e}",
               file=sys.stderr, flush=True)
+    _infiniccl_ar = None
+    print("[xllm-vo] infiniccl deferred to first call", file=sys.stderr, flush=True)
+
+
+_fused_ar_call_count = 0
 
 
 def _fused_linear_ar(input: torch.Tensor, weight: torch.Tensor,
                      bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-    return _fused_ar_bridge.linear_allreduce(
-        input.contiguous(), weight, bias)
+    global _fused_ar_call_count, _infiniccl_ar
+    _fused_ar_call_count += 1
+    if _fused_ar_call_count == 1 and _infiniccl_ar is None:
+        from ex_engine.python.infiniccl_bridge import infiniccl_allreduce
+        _infiniccl_ar = infiniccl_allreduce
+        print("[xllm-vo] infiniccl activated", file=sys.stderr, flush=True)
+    if _fused_ar_call_count <= 3:
+        print(f"[xllm-vo] fused_ar call #{_fused_ar_call_count} "
+              f"input={tuple(input.shape)} weight={tuple(weight.shape)} "
+              f"infiniccl={'yes' if _infiniccl_ar else 'no'}",
+              file=sys.stderr, flush=True)
+    gemm_out = _fused_ar_bridge.linear(input.contiguous(), weight, bias)
+    return _infiniccl_ar(gemm_out)
 
 
 # ---------------------------------------------------------------------------
