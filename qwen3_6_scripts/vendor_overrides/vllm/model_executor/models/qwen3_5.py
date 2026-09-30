@@ -586,24 +586,73 @@ if _FUSED_AR:
     _infiniccl_ar = None
     print("[xllm-vo] infiniccl deferred to first call", file=sys.stderr, flush=True)
 
+# --- ixformer overlap comm: fuse GEMM+allreduce into one dispatch ---
+_OVERLAP_COMM = env_bool("BI100_OVERLAP_COMM", False)
+_overlap_native_fwd = None
+_overlap_obj = None
+if _OVERLAP_COMM:
+    try:
+        from ixformer.distributed.overlap_comm import GemmAllReduceSplitOverlapComm
+        print("[xllm-vo] overlap comm module loaded", file=sys.stderr, flush=True)
+    except Exception as _e:
+        print(f"[xllm-vo] overlap comm FAILED: {_e}", file=sys.stderr, flush=True)
+        _OVERLAP_COMM = False
+
 
 _fused_ar_call_count = 0
 
 
 def _fused_linear_ar(input: torch.Tensor, weight: torch.Tensor,
                      bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-    global _fused_ar_call_count, _infiniccl_ar
+    global _fused_ar_call_count, _infiniccl_ar, _overlap_native_fwd, _overlap_obj
     _fused_ar_call_count += 1
+
+    # --- path 1: ixformer overlap (preferred when available) ---
+    if _OVERLAP_COMM:
+        if _overlap_native_fwd is None:
+            from vllm.distributed import get_tp_group
+            tp_group = get_tp_group().device_group
+            m = input.shape[0] if input.ndim == 2 else input.shape[0] * input.shape[1]
+            if m >= 512:
+                _overlap_obj = GemmAllReduceSplitOverlapComm.dispatcher(
+                    num_chunks=4, comm_group=tp_group
+                )
+                _overlap_native_fwd = _overlap_obj.forward
+                print(f"[xllm-vo] overlap comm activated (chunked, m={m})",
+                      file=sys.stderr, flush=True)
+            else:
+                _overlap_native_fwd = lambda inp, w, b=None: \
+                    GemmAllReduceSplitOverlapComm.native_forward(
+                        inp, w, b, group=tp_group)
+                print(f"[xllm-vo] overlap comm activated (native fwd, m={m})",
+                      file=sys.stderr, flush=True)
+        if _fused_ar_call_count <= 3:
+            print(f"[xllm-vo] overlap_ar call #{_fused_ar_call_count} "
+                  f"input={tuple(input.shape)} weight={tuple(weight.shape)}",
+                  file=sys.stderr, flush=True)
+        return _overlap_native_fwd(input.contiguous(), weight, bias)
+
+    # --- path 2: bridge GEMM + infiniccl allreduce ---
     if _fused_ar_call_count == 1 and _infiniccl_ar is None:
-        from ex_engine.python.infiniccl_bridge import infiniccl_allreduce
-        _infiniccl_ar = infiniccl_allreduce
-        print("[xllm-vo] infiniccl activated", file=sys.stderr, flush=True)
+        try:
+            from ex_engine.python.infiniccl_bridge import infiniccl_allreduce
+            _infiniccl_ar = infiniccl_allreduce
+            print("[xllm-vo] infiniccl activated", file=sys.stderr, flush=True)
+        except Exception as _e:
+            from vllm.distributed.parallel_state import (
+                get_tp_group as _get_tp)
+            _infiniccl_ar = lambda t: _get_tp().all_reduce(t) or t
+            print(f"[xllm-vo] infiniccl unavailable ({_e}), fallback tp allreduce",
+                  file=sys.stderr, flush=True)
     if _fused_ar_call_count <= 3:
         print(f"[xllm-vo] fused_ar call #{_fused_ar_call_count} "
               f"input={tuple(input.shape)} weight={tuple(weight.shape)} "
               f"infiniccl={'yes' if _infiniccl_ar else 'no'}",
               file=sys.stderr, flush=True)
-    gemm_out = _fused_ar_bridge.linear(input.contiguous(), weight, bias)
+    if _fused_ar_bridge is not None:
+        gemm_out = _fused_ar_bridge.linear(input.contiguous(), weight, bias)
+    else:
+        gemm_out = torch.nn.functional.linear(input.contiguous(), weight, bias)
     return _infiniccl_ar(gemm_out)
 
 
@@ -2534,7 +2583,12 @@ class Qwen3_5MoeSparseBlock(nn.Module):
                 out = routed_out + shared_out
             if self.experts.tp_size > 1:
                 with bi100_timer("moe.all_reduce"):
-                    out = tensor_model_parallel_all_reduce(out)
+                    if _OVERLAP_COMM:
+                        import ixformer.distributed as ixfd
+                        ixfd.all_reduce(out, async_op=True,
+                                        group=None, use_comm_stream=True)
+                    else:
+                        out = tensor_model_parallel_all_reduce(out)
         _fwd_cnt = getattr(self, '_fwd_diag_cnt', 0)
         if _fwd_cnt < 3:
             self._fwd_diag_cnt = _fwd_cnt + 1

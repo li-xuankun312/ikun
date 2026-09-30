@@ -44,61 +44,45 @@ need to cut 46.7ms from 80ms. three things stack:
 
 projected: 80 - 12 - 20 - 5 = 43ms → ~23 tok/s. with batch_size increase from 2 to 4: amortize remaining fence → ~30 tok/s
 
+## key finding: decode vs prefill
+
+`GemmAllReduceSplitOverlapComm.is_supported` requires `m >= 512` for chunked overlap. during decode, m = batch_size (1-2 tokens) so chunked overlap never fires. overlap is only effective during prefill
+
+for decode (the throughput bottleneck), three remaining paths to 30 tok/s:
+
+1. `ixfd.all_reduce(async_op=True)` — does not chunk, but puts allreduce on comm stream so it can overlap with next op on compute stream
+2. remove `--enforce-eager` — CUDA graph eliminates 22.8ms CPU dispatch overhead
+3. increase batch_size from 2 to 4-8 — amortize 18.6ms fence across more tokens
+
 ## integration plan
 
-### phase 1: MoE overlap (biggest bang)
+### phase 1: ixformer native_forward for GEMM+AR (implemented)
 
-40 MoE layers × 2 fence pairs = 80 fence pairs, ~15ms fence time
+for attention o_proj and GDN out_proj, replace bridge.linear + infiniccl_allreduce with `GemmAllReduceSplitOverlapComm.native_forward` which use `ixff.linear` (ixformer optimized GEMM) + `ixfd.all_reduce(async_op=True)` in one call. saves Python dispatch overhead and use optimized GEMM kernel
 
-replace `tensor_model_parallel_all_reduce(out)` in MoE combine with:
-```python
-from ixformer.inference.overlap.group_gemm_moe_reduce_sum_allreduce_overlap import (
-    group_gemm_moe_reduce_sum_allreduce,
-    GroupGemmMoeReduceSumAllReduceParams,
-)
-```
+gated by: `BI100_OVERLAP_COMM=1` (off by default)
+call sites: `_fused_linear_ar` in vendor_overrides/qwen3_5.py
 
-call site: `qwen3_6_scripts/qwen3_5.py` line 2514
-```python
-# before
-out = tensor_model_parallel_all_reduce(out)
+when m >= 512 (prefill): uses chunked overlap (4 chunks, compute overlaps with comm)
+when m < 512 (decode): uses native_forward (fused GEMM+AR, async comm stream)
 
-# after
-out = group_gemm_moe_reduce_sum_allreduce(params)
-```
+### phase 2: MoE async allreduce (implemented)
 
-gated by: `BI100_MOE_OVERLAP_COMM=1` (off by default)
+replace `tensor_model_parallel_all_reduce(out)` with `ixfd.all_reduce(out, async_op=True, use_comm_stream=True)` so MoE allreduce runs on comm stream and overlaps with start of next layer residual add / layernorm
 
-### phase 2: attention o_proj overlap
+gated by: same `BI100_OVERLAP_COMM=1`
 
-10 attention layers × 2 fence pairs = 20 fence pairs
+### phase 3: CUDA graph (remove --enforce-eager)
 
-replace `_fused_linear_ar` in attention with:
-```python
-from ixformer.inference.overlap.linear_mlp_overlap_comm import linear_mlp_overlap
-```
+SYSTEM_DESIGN.md line 173 set enforce_eager=true for BI-V100 compatibility. test which custom kernels break graph capture. 22.8ms CPU overhead → ~3ms is the single biggest win available
 
-call site: `qwen3_6_scripts/qwen3_5.py` line 1991
+### phase 4: batch_size tuning
 
-gated by: `BI100_ATTN_OVERLAP_COMM=1`
+increase --max-num-seqs from 2 to 4-8. GEMM and comm overhead amortized across more tokens. combined with phase 3 this is the path to 30
 
-### phase 3: GDN out_proj overlap
+### phase 5: full layer overlap (prefill)
 
-30 GDN layers × 2 fence pairs = 60 fence pairs
-
-same as phase 2 but for GDN out_proj
-
-call site: `qwen3_6_scripts/qwen3_5.py` line 1748
-
-gated by: `BI100_GDN_OVERLAP_COMM=1`
-
-### phase 4: CUDA graph (remove --enforce-eager)
-
-test which custom kernels break graph capture, fix or exclude them
-
-### phase 5: full layer overlap
-
-use `fmha_oproj_allreduce_ln_gating_overlap` for end-to-end layer fusion
+use `fmha_oproj_allreduce_ln_gating_overlap` for end-to-end layer fusion during prefill. decode already handled by phase 1-2
 
 ## risk
 
